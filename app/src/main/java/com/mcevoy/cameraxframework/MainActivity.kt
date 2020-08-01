@@ -1,30 +1,34 @@
 package com.mcevoy.cameraxframework
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
-import android.net.Uri
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.util.Log
+import android.widget.Button
 import android.widget.Toast
-import androidx.camera.core.*
-import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.util.concurrent.Executors
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import kotlinx.android.synthetic.main.activity_main.*
-import timber.log.Timber
 import java.io.File
-import java.lang.Exception
+import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import timber.log.Timber
+typealias LumaListener = (luma: Double) -> Unit
 
 
 class MainActivity : AppCompatActivity() {
     private var preview: Preview? = null
     private var imageCapture: ImageCapture? = null
-    private var imageAnalysis: ImageAnalysis? = null
+    private var imageAnalyzer: ImageAnalysis? = null
     private var camera: Camera? = null
 
     private lateinit var outputDirectory: File
@@ -51,6 +55,7 @@ class MainActivity : AppCompatActivity() {
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
 
+    @SuppressLint("LogNotTimber")
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
@@ -63,6 +68,14 @@ class MainActivity : AppCompatActivity() {
             imageCapture = ImageCapture.Builder()
                     .build()
 
+            imageAnalyzer = ImageAnalysis.Builder()
+                    .build()
+                    .also {
+                        it.setAnalyzer(cameraExecutor, LuminosityAnalyzer { luma ->
+                            Log.d(TAG, "Average luminosity: $luma")
+                        })
+                    }
+
             val cameraSelector = CameraSelector.Builder()
                     .requireLensFacing(CameraSelector.LENS_FACING_BACK).build()
 
@@ -73,7 +86,8 @@ class MainActivity : AppCompatActivity() {
                         this,
                         cameraSelector,
                         preview,
-                        imageCapture)
+                        imageCapture,
+                        imageAnalyzer)
 
                 preview?.setSurfaceProvider(viewFinder.createSurfaceProvider())
             } catch (e: Exception) {
@@ -96,15 +110,18 @@ class MainActivity : AppCompatActivity() {
         imageCapture.takePicture(
                 outputOptions, ContextCompat.getMainExecutor(this),
                 object : ImageCapture.OnImageSavedCallback {
-            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                val savedUri = Uri.fromFile(photoFile)
-                Timber.i("Photo capture succeeded $savedUri")
-            }
-
-            override fun onError(exception: ImageCaptureException) {
-                Timber.e("Photo capture failed $exception")
-            }
-        })
+                    @SuppressLint("LogNotTimber")
+                    override fun onError(exc: ImageCaptureException) {
+                        Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
+                    }
+                    @SuppressLint("LogNotTimber")
+                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                        val savedUri = Uri.fromFile(photoFile)
+                        val msg = "Photo capture succeeded: $savedUri"
+                        Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
+                        Log.d(TAG, msg)
+                    }
+                })
     }
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
@@ -132,7 +149,30 @@ class MainActivity : AppCompatActivity() {
             mediaDir else filesDir
     }
 
+    private class LuminosityAnalyzer(private var listener: LumaListener) : ImageAnalysis.Analyzer {
+
+        private fun ByteBuffer.toByteArray(): ByteArray {
+            rewind()    // Rewind the buffer to zero
+            val data = ByteArray(remaining())
+            get(data)   // Copy the buffer into a byte array
+            return data // Return the byte array
+        }
+
+        override fun analyze(image: ImageProxy) {
+
+            val buffer = image.planes[0].buffer
+            val data = buffer.toByteArray()
+            val pixels = data.map { it.toInt() and 0xFF }
+            val luma = pixels.average()
+
+            listener(luma)
+
+            image.close()
+        }
+    }
+
     companion object {
+        private const val TAG = "CameraX"
         private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
         private const val REQUEST_CODE_PERMISSIONS = 10
         private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
