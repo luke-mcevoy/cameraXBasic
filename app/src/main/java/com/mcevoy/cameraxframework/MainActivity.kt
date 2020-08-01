@@ -15,6 +15,8 @@ import java.util.concurrent.Executors
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
 import java.nio.ByteBuffer
@@ -71,9 +73,8 @@ class MainActivity : AppCompatActivity() {
             imageAnalyzer = ImageAnalysis.Builder()
                     .build()
                     .also {
-                        it.setAnalyzer(cameraExecutor, LuminosityAnalyzer { luma ->
-                            Log.d(TAG, "Average luminosity: $luma")
-                        })
+                        Timber.i("TextImageAnalyzer has been set in startCamera()")
+                        it.setAnalyzer(cameraExecutor, TextImageAnalyzer())
                     }
 
             val cameraSelector = CameraSelector.Builder()
@@ -149,6 +150,26 @@ class MainActivity : AppCompatActivity() {
             mediaDir else filesDir
     }
 
+    private class TextImageAnalyzer : ImageAnalysis.Analyzer {
+        @SuppressLint("UnsafeExperimentalUsageError")
+        override fun analyze(imageProxy: ImageProxy) {
+            val mediaImage = imageProxy.image
+            if (mediaImage != null) {
+                val image = InputImage.fromMediaImage(mediaImage, 0)
+                val recognizer = TextRecognition.getClient()
+                val result = recognizer.process(image)
+                        .addOnFailureListener { e ->
+                            Timber.e("VisionText Failure: $e")
+
+                        }
+                        .addOnSuccessListener { visionText ->
+                            Timber.i("VisionText: ${visionText.text}")
+                        }
+            }
+        }
+    }
+
+    /*
     private class LuminosityAnalyzer(private var listener: LumaListener) : ImageAnalysis.Analyzer {
 
         private fun ByteBuffer.toByteArray(): ByteArray {
@@ -170,6 +191,7 @@ class MainActivity : AppCompatActivity() {
             image.close()
         }
     }
+     */
 
     companion object {
         private const val TAG = "CameraX"
