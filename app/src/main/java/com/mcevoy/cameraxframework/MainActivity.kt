@@ -1,7 +1,9 @@
 package com.mcevoy.cameraxframework
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.widget.Toast
@@ -13,6 +15,8 @@ import kotlinx.android.synthetic.main.activity_main.*
 import timber.log.Timber
 import java.io.File
 import java.lang.Exception
+import java.text.SimpleDateFormat
+import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -56,6 +60,9 @@ class MainActivity : AppCompatActivity() {
             preview = Preview.Builder()
                     .build()
 
+            imageCapture = ImageCapture.Builder()
+                    .build()
+
             val cameraSelector = CameraSelector.Builder()
                     .requireLensFacing(CameraSelector.LENS_FACING_BACK).build()
 
@@ -65,7 +72,8 @@ class MainActivity : AppCompatActivity() {
                 camera = cameraProvider.bindToLifecycle(
                         this,
                         cameraSelector,
-                        preview)
+                        preview,
+                        imageCapture)
 
                 preview?.setSurfaceProvider(viewFinder.createSurfaceProvider())
             } catch (e: Exception) {
@@ -76,8 +84,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun takePhoto() {
+        val imageCapture = imageCapture ?: return
 
+        val photoFile = File(
+                outputDirectory,
+                SimpleDateFormat(FILENAME_FORMAT, Locale.US
+                ).format(System.currentTimeMillis()) + ".jpg")
+
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+        imageCapture.takePicture(
+                outputOptions, ContextCompat.getMainExecutor(this),
+                object : ImageCapture.OnImageSavedCallback {
+            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                val savedUri = Uri.fromFile(photoFile)
+                Timber.i("Photo capture succeeded $savedUri")
+            }
+
+            override fun onError(exception: ImageCaptureException) {
+                Timber.e("Photo capture failed $exception")
+            }
+        })
     }
+
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
         ContextCompat.checkSelfPermission(
                 baseContext, it) == PackageManager.PERMISSION_GRANTED
